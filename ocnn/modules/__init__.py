@@ -6,11 +6,13 @@
 # --------------------------------------------------------
 
 from .modules import (InputFeature,
-                      OctreeConvBn, OctreeConvBnRelu, OctreeDeconvBnRelu,
+                      OctreeConvBn, OctreeConvBnRelu, OctreeConvRn, OctreeConvRnRelu, OctreeDeconvBnRelu,
                       Conv1x1, Conv1x1Bn, Conv1x1BnRelu, FcBnRelu,
                       OctreeConvGn, OctreeConvGnRelu, OctreeDeconvGnRelu,
-                      Conv1x1, Conv1x1Gn, Conv1x1GnRelu)
-from .resblocks import (OctreeResBlock, OctreeResBlock2, OctreeResBlockGn,
+                      Conv1x1, Conv1x1Gn, Conv1x1GnRelu, Conv1x1Rn, Conv1x1RnRelu,
+                      OctreeConvRn, OctreeConvRnRelu, OctreeDeconvRnRelu,
+                      DownsampleRnRelu, UpsampleRnRelu)
+from .resblocks import (OctreeResBlock, OctreeResBlock2, OctreeResBlockGn, OctreeResBlockRn,
                         OctreeResBlocks,)
 
 __all__ = [
@@ -19,8 +21,11 @@ __all__ = [
     'Conv1x1', 'Conv1x1Bn', 'Conv1x1BnRelu', 'FcBnRelu',
     'OctreeConvGn', 'OctreeConvGnRelu', 'OctreeDeconvGnRelu',
     'Conv1x1', 'Conv1x1Gn', 'Conv1x1GnRelu',
-    'OctreeResBlock', 'OctreeResBlock2', 'OctreeResBlockGn',
+    'OctreeConvRn', 'OctreeConvRnRelu', 'OctreeDeconvRnRelu',
+    'Conv1x1Rn', 'Conv1x1RnRelu',
+    'OctreeResBlock', 'OctreeResBlock2', 'OctreeResBlockGn', 'OctreeResBlockRn',
     'OctreeResBlocks',
+    'DownsampleRnRelu', 'UpsampleRnRelu',
 ]
 
 classes = __all__

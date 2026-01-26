@@ -92,6 +92,25 @@ class OctreeInstanceNorm(OctreeGroupNorm):
     return ('in_channels={}, nempty={}').format(self.in_channels, self.nempty)
 
 
+class RMSNorm(torch.nn.Module):
+  r''' Root Mean Square Normalization.
+  '''
+
+  def __init__(self, in_channels: int, eps: float = 1e-6):
+    super().__init__()
+    self.weight = torch.nn.Parameter(torch.ones(in_channels))
+    self.eps = eps
+
+  def forward(self, x: torch.Tensor):
+    r''''''
+    # x: (N, C)
+    norm = x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
+    return norm * self.weight
+
+  def extra_repr(self) -> str:
+    return 'in_channels={}, eps={}'.format(self.weight.shape[0], self.eps)
+
+
 class OctreeNorm(torch.nn.Module):
   r''' A normalization layer for the octree. It encapsulates octree-based batch,
   group and instance normalization.
@@ -111,12 +130,16 @@ class OctreeNorm(torch.nn.Module):
       self.norm = OctreeGroupNorm(in_channels, group, min_group_channels)
     elif self.norm_type == 'instance_norm':
       self.norm = OctreeInstanceNorm(in_channels)
+    elif self.norm_type == 'rms_norm':
+      self.norm = RMSNorm(in_channels)
     else:
       raise ValueError
 
   def forward(self, x: torch.Tensor, octree: Optional[Octree] = None,
               depth: Optional[int] = None):
     if self.norm_type == 'batch_norm':
+      output = self.norm(x)
+    elif self.norm_type == 'rms_norm':
       output = self.norm(x)
     elif (self.norm_type == 'group_norm' or
           self.norm_type == 'instance_norm'):

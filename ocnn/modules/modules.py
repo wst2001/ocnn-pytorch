@@ -9,9 +9,9 @@ import torch
 import torch.utils.checkpoint
 from typing import List
 
-from ocnn.nn import OctreeConv, OctreeDeconv, OctreeGroupNorm
+from ocnn.nn import OctreeConv, OctreeConvTriton, OctreeDeconv, OctreeGroupNorm, RMSNorm, octree_pad, octree_depad
 from ocnn.octree import Octree
-
+import os
 
 # bn_momentum, bn_eps = 0.01, 0.001  # the default value of Tensorflow 1.x
 # bn_momentum, bn_eps = 0.1, 1e-05   # the default value of pytorch
@@ -283,6 +283,128 @@ class Conv1x1GnRelu(torch.nn.Module):
     return out
 
 
+class OctreeConvRn(torch.nn.Module):
+  r''' A sequence of :class:`OctreeConv` and :obj:`RMSNorm`.
+
+  Please refer to :class:`ocnn.nn.OctreeConv` for details on the parameters.
+  '''
+
+  def __init__(self, in_channels: int, out_channels: int,
+               kernel_size: List[int] = [3], stride: int = 1,
+               nempty: bool = False):
+    super().__init__()
+    if os.environ.get('OCNN_USE_TRITON', '0') == '1':
+      try:
+        self.conv = OctreeConvTriton(
+            in_channels, out_channels, kernel_size, stride, nempty)
+      except:
+        self.conv = OctreeConv(
+            in_channels, out_channels, kernel_size, stride, nempty)
+    else:
+      self.conv = OctreeConv(
+          in_channels, out_channels, kernel_size, stride, nempty)
+    self.rn = RMSNorm(out_channels)
+
+  def forward(self, data: torch.Tensor, octree: Octree, depth: int):
+    r''''''
+
+    out = self.conv(data, octree, depth)
+    out = self.rn(out)
+    return out
+
+
+class OctreeConvRnRelu(torch.nn.Module):
+  r''' A sequence of :class:`OctreeConv`, :obj:`RMSNorm`, and :obj:`Relu`.
+
+  Please refer to :class:`ocnn.nn.OctreeConv` for details on the parameters.
+  '''
+
+  def __init__(self, in_channels: int, out_channels: int,
+               kernel_size: List[int] = [3], stride: int = 1,
+               nempty: bool = False):
+    super().__init__()
+    if os.environ.get('OCNN_USE_TRITON', '0') == '1':
+      try:
+        self.conv = OctreeConvTriton(
+            in_channels, out_channels, kernel_size, stride, nempty)
+      except:
+        self.conv = OctreeConv(
+            in_channels, out_channels, kernel_size, stride, nempty)
+    else:
+      self.conv = OctreeConv(
+          in_channels, out_channels, kernel_size, stride, nempty)
+    self.rn = RMSNorm(out_channels)
+    self.relu = torch.nn.ReLU(inplace=True)
+
+  def forward(self, data: torch.Tensor, octree: Octree, depth: int):
+    r''''''
+
+    out = self.conv(data, octree, depth)
+    out = self.rn(out)
+    out = self.relu(out)
+    return out
+
+
+class OctreeDeconvRnRelu(torch.nn.Module):
+  r''' A sequence of :class:`OctreeDeconv` and :obj:`RMSNorm`.
+
+  Please refer to :class:`ocnn.nn.OctreeDeconv` for details on the parameters.
+  '''
+
+  def __init__(self, in_channels: int, out_channels: int,
+               kernel_size: List[int] = [3], stride: int = 1,
+               nempty: bool = False):
+    super().__init__()
+    self.deconv = OctreeDeconv(
+        in_channels, out_channels, kernel_size, stride, nempty)
+    self.rn = RMSNorm(out_channels)
+    self.relu = torch.nn.ReLU(inplace=True)
+
+  def forward(self, data: torch.Tensor, octree: Octree, depth: int):
+    r''''''
+
+    out = self.deconv(data, octree, depth)
+    out = self.rn(out)
+    out = self.relu(out)
+    return out
+
+class Conv1x1Rn(torch.nn.Module):
+  r''' A sequence of :class:`Conv1x1`, :class:`RMSNorm`.
+  '''
+
+  def __init__(self, in_channels: int, out_channels: int, group: int,
+               nempty: bool = False):
+    super().__init__()
+    self.conv = Conv1x1(in_channels, out_channels, use_bias=False)
+    self.rn = RMSNorm(out_channels)
+
+  def forward(self, data: torch.Tensor, octree: Octree, depth: int):
+    r''''''
+
+    out = self.conv(data)
+    out = self.gn(out, octree, depth)
+    return out
+
+
+class Conv1x1RnRelu(torch.nn.Module):
+  r''' A sequence of :class:`Conv1x1`, :class:`OctreeGroupNorm` and :class:`Relu`.
+  '''
+
+  def __init__(self, in_channels: int, out_channels: int,
+               nempty: bool = False):
+    super().__init__()
+    self.conv = Conv1x1(in_channels, out_channels, use_bias=False)
+    self.rn = RMSNorm(out_channels)
+    self.relu = torch.nn.ReLU(inplace=True)
+
+  def forward(self, data: torch.Tensor, octree: Octree, depth: int):
+    r''''''
+
+    out = self.conv(data)
+    out = self.rn(out)
+    out = self.relu(out)
+    return out
+
 class InputFeature(torch.nn.Module):
   r''' Returns the initial input feature stored in octree.
 
@@ -301,3 +423,100 @@ class InputFeature(torch.nn.Module):
   def extra_repr(self) -> str:
     r''''''
     return 'feature={}, nempty={}'.format(self.feature, self.nempty)
+
+class Upsample(torch.nn.Module):
+
+  def __init__(self, in_channels: int):
+    super().__init__()
+    self.in_channels = in_channels
+    self.weights = torch.nn.Parameter(torch.Tensor(in_channels, in_channels, 8))
+    torch.nn.init.xavier_uniform_(self.weights)
+    # TODO: add bias
+
+  def forward(self, x: torch.Tensor):
+    out = x @ self.weights.flatten(1)
+    out = out.view(-1, self.in_channels)
+    return out
+
+  def extra_repr(self):
+    return 'in_channels={}'.format(self.in_channels)
+
+
+class Downsample(torch.nn.Module):
+
+  def __init__(self, in_channels):
+    super().__init__()
+    self.in_channels = in_channels
+
+    self.weights = torch.nn.Parameter(torch.Tensor(in_channels, in_channels, 8))
+    torch.nn.init.xavier_uniform_(self.weights)
+
+  def forward(self, x: torch.Tensor):
+    weights = self.weights.flatten(1).t()
+    out = x.view(-1, self.in_channels * 8) @ weights
+    return out
+
+  def extra_repr(self):
+    return 'in_channels={}'.format(self.in_channels)
+
+
+class DownsampleRnRelu(torch.nn.Module):
+
+  def __init__(self, in_channels: int, out_channels: int, nempty: bool = False):
+    super().__init__()
+    self.in_channels = in_channels
+    self.out_channels = out_channels
+    self.nempty = nempty
+    self.downsample = Downsample(in_channels)
+    if in_channels != out_channels:
+      self.conv1x1 = Conv1x1RnRelu(
+          in_channels, out_channels, nempty)
+
+  def forward(self, x: torch.Tensor, octree: Octree, depth: int):
+    if self.nempty:
+      x = octree_pad(x, octree, depth)
+    # downsample nodes at layer depth
+    out = self.downsample(x)
+
+    if not self.nempty:
+      out = octree_pad(out, octree, depth - 1)
+
+    if self.in_channels != self.out_channels:
+      out = self.conv1x1(out, octree, depth - 1)
+    return out
+
+  def extra_repr(self):
+    return 'in_channels={}, out_channels={}'.format(
+        self.in_channels, self.out_channels)
+
+
+class UpsampleRnRelu(torch.nn.Module):
+
+  def __init__(self, in_channels: int, out_channels: int, nempty: bool = False):
+    super().__init__()
+    self.in_channels = in_channels
+    self.out_channels = out_channels
+    self.nempty = nempty
+    self.upsample = Upsample(in_channels)
+    if in_channels != out_channels:
+      self.conv1x1 = Conv1x1RnRelu(
+          in_channels, out_channels, nempty)
+
+  def forward(self, x: torch.Tensor, octree: Octree, depth: int):
+    # upsample nodes at layer depth
+    if not self.nempty:
+      x = octree_depad(x, octree, depth)
+    
+    out = self.upsample(x)
+
+    if self.nempty:
+      out = octree_depad(out, octree, depth+1)
+    
+    if self.in_channels != self.out_channels:
+      out = self.conv1x1(out, octree, depth + 1)
+    return out
+
+  def extra_repr(self):
+    return 'in_channels={}, out_channels={}'.format(
+        self.in_channels, self.out_channels)
+  
